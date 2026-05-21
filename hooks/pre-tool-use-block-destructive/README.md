@@ -13,8 +13,9 @@ The installer copies `block_destructive.py` to `~/.claude/hooks/` and adds a Bas
 ## What It Blocks
 
 - `rm -rf` and `rm -fr`
-- `DROP TABLE`
-- `git push --force` and `git push -f`
+- `rm -Rf`, `rm -fR`, and `rm --recursive --force`
+- `DROP TABLE`, `DROP DATABASE`, and `DROP SCHEMA`
+- `git push --force`, `git push -f`, and `git push --force-with-lease`
 - `TRUNCATE`
 - `DELETE FROM` statements without a `WHERE` clause
 
