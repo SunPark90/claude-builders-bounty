@@ -124,7 +124,7 @@ def hook_output(decision: str | None = None, reason: str | None = None) -> dict:
 
 
 def log_blocked_attempt(command: str, cwd: str, reason: str) -> None:
-    log_dir = Path.home() / ".claude" / "hooks"
+    log_dir = hooks_dir()
     log_dir.mkdir(parents=True, exist_ok=True)
     entry = {
         "timestamp": datetime.now(timezone.utc).isoformat(),
@@ -134,6 +134,18 @@ def log_blocked_attempt(command: str, cwd: str, reason: str) -> None:
     }
     with (log_dir / "blocked.log").open("a", encoding="utf-8") as log_file:
         log_file.write(json.dumps(entry, ensure_ascii=False) + "\n")
+
+
+def hooks_dir() -> Path:
+    override = os.environ.get("CLAUDE_HOOKS_DIR")
+    if override:
+        return Path(override)
+
+    config_dir = os.environ.get("CLAUDE_CONFIG_DIR")
+    if config_dir:
+        return Path(config_dir) / "hooks"
+
+    return Path.home() / ".claude" / "hooks"
 
 
 def main() -> int:

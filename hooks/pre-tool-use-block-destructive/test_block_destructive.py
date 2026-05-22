@@ -1,4 +1,5 @@
 import json
+import os
 import subprocess
 import sys
 import tempfile
@@ -6,7 +7,7 @@ import unittest
 from pathlib import Path
 
 from block_destructive import find_block_reason, has_forced_git_push, has_rm_recursive_force
-from install import command_for
+from install import command_for, install
 
 
 class DetectionTests(unittest.TestCase):
@@ -59,7 +60,11 @@ class HookIntegrationTests(unittest.TestCase):
             text=True,
             capture_output=True,
             check=True,
-            env={"HOME": str(home), "USERPROFILE": str(home)},
+            env={
+                "HOME": str(home),
+                "USERPROFILE": str(home),
+                "CLAUDE_HOOKS_DIR": str(home / ".claude" / "hooks"),
+            },
         )
         return json.loads(result.stdout)
 
@@ -117,6 +122,31 @@ class InstallerTests(unittest.TestCase):
         command = command_for(Path("/tmp/claude hooks/block_destructive.py"))
         self.assertIn("block_destructive.py", command)
         self.assertTrue(command.startswith('"'))
+
+    def test_installer_is_idempotent_and_respects_config_dir(self):
+        with tempfile.TemporaryDirectory() as temp_home:
+            config_dir = Path(temp_home) / ".claude-test"
+            old_config_dir = os.environ.get("CLAUDE_CONFIG_DIR")
+            os.environ["CLAUDE_CONFIG_DIR"] = str(config_dir)
+            try:
+                install()
+                install()
+            finally:
+                if old_config_dir is None:
+                    os.environ.pop("CLAUDE_CONFIG_DIR", None)
+                else:
+                    os.environ["CLAUDE_CONFIG_DIR"] = old_config_dir
+
+            target = config_dir / "hooks" / "block_destructive.py"
+            settings_path = config_dir / "settings.json"
+            settings = json.loads(settings_path.read_text(encoding="utf-8"))
+            entries = settings["hooks"]["PreToolUse"]
+            target_exists = target.exists()
+
+        self.assertTrue(target_exists)
+        self.assertEqual(len(entries), 1)
+        self.assertEqual(entries[0]["matcher"], "Bash")
+        self.assertIn("block_destructive.py", entries[0]["hooks"][0]["command"])
 
 
 if __name__ == "__main__":
