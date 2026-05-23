@@ -6,7 +6,12 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from block_destructive import find_block_reason, has_forced_git_push, has_rm_recursive_force
+from block_destructive import (
+    find_block_reason,
+    has_block_device_write,
+    has_forced_git_push,
+    has_rm_recursive_force,
+)
 from install import command_for, install
 
 
@@ -17,6 +22,7 @@ class DetectionTests(unittest.TestCase):
         self.assertIsNone(find_block_reason("DELETE FROM users WHERE id = 1"))
         self.assertIsNone(find_block_reason("rm -r build"))
         self.assertIsNone(find_block_reason("rm -f package-lock.json"))
+        self.assertIsNone(find_block_reason("truncate -s 0 app.log"))
 
     def test_blocks_rm_rf_variants(self):
         self.assertIn("rm -rf", find_block_reason("rm -rf /tmp/build"))
@@ -35,6 +41,7 @@ class DetectionTests(unittest.TestCase):
         self.assertIn("DROP TABLE", find_block_reason("DROP DATABASE prod"))
         self.assertIn("DROP TABLE", find_block_reason("DROP SCHEMA public"))
         self.assertIn("TRUNCATE", find_block_reason("TRUNCATE audit_log"))
+        self.assertIn("TRUNCATE", find_block_reason("TRUNCATE TABLE audit_log"))
         self.assertIn("DELETE FROM", find_block_reason("DELETE FROM users"))
 
     def test_delete_from_requires_where_per_statement(self):
@@ -49,6 +56,17 @@ class DetectionTests(unittest.TestCase):
         self.assertIn("git push --force", find_block_reason("git push --force-with-lease origin main"))
         self.assertTrue(has_forced_git_push("cd repo && git push -f"))
         self.assertFalse(has_forced_git_push("git push origin main"))
+
+    def test_blocks_direct_block_device_writes(self):
+        self.assertIn("block devices", find_block_reason("mkfs.ext4 /dev/sda1"))
+        self.assertIn("block devices", find_block_reason("dd if=image.iso of=/dev/sdb bs=4M"))
+        self.assertTrue(has_block_device_write("echo 1 > /dev/sda"))
+        self.assertFalse(has_block_device_write("dd if=/dev/zero of=./disk.img bs=1M count=1"))
+
+    def test_blocks_permissive_root_chmod(self):
+        self.assertIn("chmod 777", find_block_reason("chmod -R 777 /var/www"))
+        self.assertIn("chmod 777", find_block_reason("chmod --recursive 666 /tmp/shared"))
+        self.assertIsNone(find_block_reason("chmod 755 scripts/deploy.sh"))
 
 
 class HookIntegrationTests(unittest.TestCase):

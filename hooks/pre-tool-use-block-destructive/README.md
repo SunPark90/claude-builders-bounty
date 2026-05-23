@@ -18,6 +18,8 @@ The installer copies `block_destructive.py` to `~/.claude/hooks/` and adds a Bas
 - `git push --force`, `git push -f`, and `git push --force-with-lease`
 - `TRUNCATE`
 - `DELETE FROM` statements without a `WHERE` clause
+- direct block-device writes such as `mkfs`, `dd ... of=/dev/sd*`, and redirects to `/dev/sd*`
+- recursive permissive root-path permission changes such as `chmod -R 777 /...`
 
 Every blocked attempt is appended to `~/.claude/hooks/blocked.log` as JSON Lines with:
 

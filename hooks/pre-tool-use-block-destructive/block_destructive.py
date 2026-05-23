@@ -14,8 +14,18 @@ from pathlib import Path
 
 DROP_DDL = re.compile(r"(?is)\bdrop\s+(table|database|schema)\b")
 DELETE_FROM = re.compile(r"(?is)\bdelete\s+from\b")
-TRUNCATE = re.compile(r"(?is)\btruncate\b")
+TRUNCATE = re.compile(r"(?is)\btruncate(?:\s+table)?\s+[a-z_][\w.]*")
 WHERE = re.compile(r"(?is)\bwhere\b")
+MKFS = re.compile(r"(?is)(?:^|[\s;&|])mkfs(?:\.\w+)?(?:\s|$)")
+DD_TO_BLOCK_DEVICE = re.compile(
+    r"(?is)(?:^|[\s;&|])dd\s+[^\n;&|]*\bof=/dev/(sd|hd|vd|xvd|nvme|disk)"
+)
+REDIRECT_TO_BLOCK_DEVICE = re.compile(
+    r"(?is)(?:^|[\s;&|])(?:>|1>|2>)\s*/dev/(sd|hd|vd|xvd|nvme|disk)"
+)
+CHMOD_777_ROOT = re.compile(
+    r"(?is)(?:^|[\s;&|])chmod\s+(?:-[\w]*R[\w]*\s+|--recursive\s+)?(?:777|666)\s+/"
+)
 
 
 def find_block_reason(command: str) -> str | None:
@@ -28,8 +38,14 @@ def find_block_reason(command: str) -> str | None:
     if DROP_DDL.search(command):
         return "Destructive DROP statement is blocked. Matched pattern: DROP TABLE/DATABASE/SCHEMA."
 
-    if TRUNCATE.search(command):
+    if has_sql_truncate(command):
         return "TRUNCATE statements are blocked. Matched pattern: TRUNCATE."
+
+    if has_block_device_write(command):
+        return "Direct writes to block devices are blocked. Matched pattern: mkfs/dd/> /dev."
+
+    if CHMOD_777_ROOT.search(command):
+        return "Recursive permissive chmod on root paths is blocked. Matched pattern: chmod 777 /."
 
     for statement in split_sql_statements(command):
         if DELETE_FROM.search(statement) and not WHERE.search(statement):
@@ -87,6 +103,24 @@ def has_forced_git_push(command: str) -> bool:
             if any(arg in {"--force", "--force-with-lease", "-f"} for arg in push_args):
                 return True
 
+    return False
+
+
+def has_block_device_write(command: str) -> bool:
+    return bool(
+        MKFS.search(command)
+        or DD_TO_BLOCK_DEVICE.search(command)
+        or REDIRECT_TO_BLOCK_DEVICE.search(command)
+    )
+
+
+def has_sql_truncate(command: str) -> bool:
+    for words in shell_commands(command):
+        if words and command_name(words[0]) == "truncate" and len(words) > 1:
+            if words[1].startswith("-"):
+                continue
+        if TRUNCATE.search(" ".join(words)):
+            return True
     return False
 
 
