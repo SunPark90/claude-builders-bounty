@@ -34,6 +34,9 @@ class DetectionTests(unittest.TestCase):
     def test_rm_parser_handles_quoted_paths_and_separators(self):
         self.assertTrue(has_rm_recursive_force("rm -rf 'folder with spaces'"))
         self.assertTrue(has_rm_recursive_force("echo ok; rm -fR build"))
+        self.assertTrue(has_rm_recursive_force("sudo rm -rf build"))
+        self.assertTrue(has_rm_recursive_force("command rm -rf build"))
+        self.assertTrue(has_rm_recursive_force("env PATH=/usr/bin rm -rf build"))
         self.assertFalse(has_rm_recursive_force("echo 'rm -rf docs'"))
 
     def test_blocks_sql_destructive_patterns(self):
@@ -54,6 +57,8 @@ class DetectionTests(unittest.TestCase):
         self.assertIn("git push --force", find_block_reason("git push -f origin main"))
         self.assertIn("git push --force", find_block_reason("git -C repo push --force origin main"))
         self.assertIn("git push --force", find_block_reason("git push --force-with-lease origin main"))
+        self.assertIn("git push --force", find_block_reason("sudo git push --force origin main"))
+        self.assertIn("git push --force", find_block_reason("env GIT_DIR=.git git push -f origin main"))
         self.assertTrue(has_forced_git_push("cd repo && git push -f"))
         self.assertFalse(has_forced_git_push("git push origin main"))
 

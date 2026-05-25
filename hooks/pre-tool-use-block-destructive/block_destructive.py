@@ -56,6 +56,7 @@ def find_block_reason(command: str) -> str | None:
 
 def has_rm_recursive_force(command: str) -> bool:
     for words in shell_commands(command):
+        words = strip_command_wrappers(words)
         for index, word in enumerate(words):
             if command_name(word) != "rm":
                 continue
@@ -87,6 +88,7 @@ def has_rm_recursive_force(command: str) -> bool:
 
 def has_forced_git_push(command: str) -> bool:
     for words in shell_commands(command):
+        words = strip_command_wrappers(words)
         for index, word in enumerate(words):
             if command_name(word) != "git":
                 continue
@@ -104,6 +106,39 @@ def has_forced_git_push(command: str) -> bool:
                 return True
 
     return False
+
+
+def strip_command_wrappers(words: list[str]) -> list[str]:
+    result = list(words)
+    while result:
+        head = command_name(result[0])
+        if head == "sudo":
+            result = result[1:]
+            continue
+        if head == "command":
+            result = result[1:]
+            continue
+        if head == "env":
+            result = strip_env_prefix(result[1:])
+            continue
+        break
+    return result
+
+
+def strip_env_prefix(words: list[str]) -> list[str]:
+    result = list(words)
+    while result:
+        token = result[0]
+        if token == "--":
+            return result[1:]
+        if token.startswith("-"):
+            result = result[1:]
+            continue
+        if re.match(r"^[A-Za-z_][A-Za-z0-9_]*=", token):
+            result = result[1:]
+            continue
+        return result
+    return result
 
 
 def has_block_device_write(command: str) -> bool:
