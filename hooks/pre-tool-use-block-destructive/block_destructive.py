@@ -12,11 +12,13 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 
-DROP_DDL = re.compile(r"(?is)\bdrop\s+(table|database|schema)\b")
+DROP_DDL = re.compile(r"(?is)\bdrop\s+(table|database|schema|index|view|function|procedure)\b")
 DELETE_FROM = re.compile(r"(?is)\bdelete\s+from\b")
+UPDATE_SET = re.compile(r"(?is)\bupdate\s+[\w.]+\s+set\b")
+ALTER_TABLE_DROP = re.compile(r"(?is)\balter\s+table\b.*\bdrop\b")
 TRUNCATE = re.compile(r"(?is)\btruncate(?:\s+table)?\s+[a-z_][\w.]*")
 WHERE = re.compile(r"(?is)\bwhere\b")
-MKFS = re.compile(r"(?is)(?:^|[\s;&|])mkfs(?:\.\w+)?(?:\s|$)")
+MKFS = re.compile(r"(?is)(?:^|[\s;&|])(?:mkfs(?:\.\w+)?|mkswap)(?:\s|$)")
 DD_TO_BLOCK_DEVICE = re.compile(
     r"(?is)(?:^|[\s;&|])dd\s+[^\n;&|]*\bof=/dev/(sd|hd|vd|xvd|nvme|disk)"
 )
@@ -35,8 +37,11 @@ def find_block_reason(command: str) -> str | None:
     if has_forced_git_push(command):
         return "Force-pushing is blocked. Matched pattern: git push --force."
 
+    if has_destructive_git_history_command(command):
+        return "Destructive Git history cleanup is blocked. Matched pattern: git reset --hard/git clean -fd."
+
     if DROP_DDL.search(command):
-        return "Destructive DROP statement is blocked. Matched pattern: DROP TABLE/DATABASE/SCHEMA."
+        return "Destructive DROP statement is blocked. Matched pattern: DROP TABLE/DATABASE/SCHEMA/INDEX/VIEW."
 
     if has_sql_truncate(command):
         return "TRUNCATE statements are blocked. Matched pattern: TRUNCATE."
@@ -48,8 +53,13 @@ def find_block_reason(command: str) -> str | None:
         return "Recursive permissive chmod on root paths is blocked. Matched pattern: chmod 777 /."
 
     for statement in split_sql_statements(command):
+        statement = strip_sql_comments(statement)
         if DELETE_FROM.search(statement) and not WHERE.search(statement):
             return "DELETE FROM without a WHERE clause is blocked. Matched pattern: DELETE FROM."
+        if UPDATE_SET.search(statement) and not WHERE.search(statement):
+            return "UPDATE without a WHERE clause is blocked. Matched pattern: UPDATE SET."
+        if ALTER_TABLE_DROP.search(statement):
+            return "ALTER TABLE DROP statements are blocked. Matched pattern: ALTER TABLE DROP."
 
     return None
 
@@ -103,6 +113,53 @@ def has_forced_git_push(command: str) -> bool:
 
             push_args = [arg.lower() for arg in git_args[push_index + 1 :]]
             if any(arg in {"--force", "--force-with-lease", "-f"} for arg in push_args):
+                return True
+
+    return False
+
+
+def has_destructive_git_history_command(command: str) -> bool:
+    for words in shell_commands(command):
+        words = strip_command_wrappers(words)
+        for index, word in enumerate(words):
+            if command_name(word) != "git":
+                continue
+
+            git_args = [arg.lower() for arg in words[index + 1 :]]
+            reset_index = next(
+                (i for i, arg in enumerate(git_args) if arg == "reset"),
+                None,
+            )
+            if reset_index is not None and "--hard" in git_args[reset_index + 1 :]:
+                return True
+
+            clean_index = next(
+                (i for i, arg in enumerate(git_args) if arg == "clean"),
+                None,
+            )
+            if clean_index is None:
+                continue
+
+            clean_args = git_args[clean_index + 1 :]
+            has_force = False
+            has_directory_or_ignored = False
+            is_dry_run = False
+            for arg in clean_args:
+                if arg in {"--force", "-f"}:
+                    has_force = True
+                elif arg in {"-d", "--directories", "-x", "-X"}:
+                    has_directory_or_ignored = True
+                elif arg in {"-n", "--dry-run"}:
+                    is_dry_run = True
+                elif arg.startswith("-") and not arg.startswith("--"):
+                    flags = arg.lstrip("-")
+                    has_force = has_force or "f" in flags
+                    has_directory_or_ignored = has_directory_or_ignored or any(
+                        flag in flags for flag in ("d", "x", "X")
+                    )
+                    is_dry_run = is_dry_run or "n" in flags
+
+            if has_force and has_directory_or_ignored and not is_dry_run:
                 return True
 
     return False
@@ -177,6 +234,13 @@ def command_name(word: str) -> str:
 
 def split_sql_statements(command: str) -> list[str]:
     return [part.strip() for part in re.split(r"[;\n]", command) if part.strip()]
+
+
+def strip_sql_comments(statement: str) -> str:
+    without_block_comments = re.sub(r"(?is)/\*.*?\*/", " ", statement)
+    return "\n".join(
+        re.sub(r"--.*$", "", line) for line in without_block_comments.splitlines()
+    )
 
 
 def hook_output(decision: str | None = None, reason: str | None = None) -> dict:

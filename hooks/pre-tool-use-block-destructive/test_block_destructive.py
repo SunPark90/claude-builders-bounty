@@ -43,14 +43,20 @@ class DetectionTests(unittest.TestCase):
         self.assertIn("DROP TABLE", find_block_reason("psql -c 'DROP TABLE users'"))
         self.assertIn("DROP TABLE", find_block_reason("DROP DATABASE prod"))
         self.assertIn("DROP TABLE", find_block_reason("DROP SCHEMA public"))
+        self.assertIn("DROP TABLE", find_block_reason("DROP INDEX users_email_idx"))
         self.assertIn("TRUNCATE", find_block_reason("TRUNCATE audit_log"))
         self.assertIn("TRUNCATE", find_block_reason("TRUNCATE TABLE audit_log"))
         self.assertIn("DELETE FROM", find_block_reason("DELETE FROM users"))
+        self.assertIn("UPDATE", find_block_reason("UPDATE users SET admin = true"))
+        self.assertIn("ALTER TABLE DROP", find_block_reason("ALTER TABLE users DROP COLUMN email"))
 
     def test_delete_from_requires_where_per_statement(self):
         self.assertIsNone(find_block_reason("DELETE FROM users WHERE id = 1"))
+        self.assertIsNone(find_block_reason("UPDATE users SET name = 'a' WHERE id = 1"))
         self.assertIn("DELETE FROM", find_block_reason("DELETE FROM users; SELECT 1"))
         self.assertIn("DELETE FROM", find_block_reason("SELECT 1; DELETE FROM users"))
+        self.assertIn("DELETE FROM", find_block_reason("DELETE FROM users -- WHERE id = 1"))
+        self.assertIn("UPDATE", find_block_reason("UPDATE users SET admin = true /* WHERE id = 1 */"))
 
     def test_blocks_force_push(self):
         self.assertIn("git push --force", find_block_reason("git push --force origin main"))
@@ -62,8 +68,16 @@ class DetectionTests(unittest.TestCase):
         self.assertTrue(has_forced_git_push("cd repo && git push -f"))
         self.assertFalse(has_forced_git_push("git push origin main"))
 
+    def test_blocks_destructive_git_cleanup(self):
+        self.assertIn("Git history", find_block_reason("git reset --hard HEAD~1"))
+        self.assertIn("Git history", find_block_reason("sudo git clean -fdx"))
+        self.assertIn("Git history", find_block_reason("git -C repo clean --force -d"))
+        self.assertIsNone(find_block_reason("git reset --soft HEAD~1"))
+        self.assertIsNone(find_block_reason("git clean -nfd"))
+
     def test_blocks_direct_block_device_writes(self):
         self.assertIn("block devices", find_block_reason("mkfs.ext4 /dev/sda1"))
+        self.assertIn("block devices", find_block_reason("mkswap /dev/sdb2"))
         self.assertIn("block devices", find_block_reason("dd if=image.iso of=/dev/sdb bs=4M"))
         self.assertTrue(has_block_device_write("echo 1 > /dev/sda"))
         self.assertFalse(has_block_device_write("dd if=/dev/zero of=./disk.img bs=1M count=1"))
