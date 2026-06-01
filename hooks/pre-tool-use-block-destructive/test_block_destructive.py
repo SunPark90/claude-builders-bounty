@@ -23,6 +23,9 @@ class DetectionTests(unittest.TestCase):
         self.assertIsNone(find_block_reason("rm -r build"))
         self.assertIsNone(find_block_reason("rm -f package-lock.json"))
         self.assertIsNone(find_block_reason("truncate -s 0 app.log"))
+        self.assertIsNone(find_block_reason("rg 'DROP TABLE' docs/"))
+        self.assertIsNone(find_block_reason("grep -R 'DELETE FROM users' docs/"))
+        self.assertIsNone(find_block_reason("ag 'UPDATE users SET admin = true' docs/"))
 
     def test_blocks_rm_rf_variants(self):
         self.assertIn("rm -rf", find_block_reason("rm -rf /tmp/build"))
@@ -49,6 +52,7 @@ class DetectionTests(unittest.TestCase):
         self.assertIn("DELETE FROM", find_block_reason("DELETE FROM users"))
         self.assertIn("UPDATE", find_block_reason("UPDATE users SET admin = true"))
         self.assertIn("ALTER TABLE DROP", find_block_reason("ALTER TABLE users DROP COLUMN email"))
+        self.assertIn("DROP TABLE", find_block_reason("rg 'DROP TABLE' docs && psql -c 'DROP TABLE users'"))
 
     def test_delete_from_requires_where_per_statement(self):
         self.assertIsNone(find_block_reason("DELETE FROM users WHERE id = 1"))
