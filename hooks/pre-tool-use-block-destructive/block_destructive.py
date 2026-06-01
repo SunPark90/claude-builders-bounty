@@ -28,6 +28,7 @@ REDIRECT_TO_BLOCK_DEVICE = re.compile(
 CHMOD_777_ROOT = re.compile(
     r"(?is)(?:^|[\s;&|])chmod\s+(?:-[\w]*R[\w]*\s+|--recursive\s+)?(?:777|666)\s+/"
 )
+READ_ONLY_SEARCH_COMMANDS = {"ag", "grep", "rg"}
 
 
 def find_block_reason(command: str) -> str | None:
@@ -40,7 +41,7 @@ def find_block_reason(command: str) -> str | None:
     if has_destructive_git_history_command(command):
         return "Destructive Git history cleanup is blocked. Matched pattern: git reset --hard/git clean -fd."
 
-    if DROP_DDL.search(command):
+    if has_destructive_drop(command):
         return "Destructive DROP statement is blocked. Matched pattern: DROP TABLE/DATABASE/SCHEMA/INDEX/VIEW."
 
     if has_sql_truncate(command):
@@ -52,14 +53,9 @@ def find_block_reason(command: str) -> str | None:
     if CHMOD_777_ROOT.search(command):
         return "Recursive permissive chmod on root paths is blocked. Matched pattern: chmod 777 /."
 
-    for statement in split_sql_statements(command):
-        statement = strip_sql_comments(statement)
-        if DELETE_FROM.search(statement) and not WHERE.search(statement):
-            return "DELETE FROM without a WHERE clause is blocked. Matched pattern: DELETE FROM."
-        if UPDATE_SET.search(statement) and not WHERE.search(statement):
-            return "UPDATE without a WHERE clause is blocked. Matched pattern: UPDATE SET."
-        if ALTER_TABLE_DROP.search(statement):
-            return "ALTER TABLE DROP statements are blocked. Matched pattern: ALTER TABLE DROP."
+    sql_reason = destructive_sql_statement_reason(command)
+    if sql_reason:
+        return sql_reason
 
     return None
 
@@ -206,14 +202,45 @@ def has_block_device_write(command: str) -> bool:
     )
 
 
+def has_destructive_drop(command: str) -> bool:
+    for words in shell_commands(command):
+        if is_read_only_search_command(words):
+            continue
+        if DROP_DDL.search(" ".join(words)):
+            return True
+    return False
+
+
 def has_sql_truncate(command: str) -> bool:
     for words in shell_commands(command):
+        if is_read_only_search_command(words):
+            continue
         if words and command_name(words[0]) == "truncate" and len(words) > 1:
             if words[1].startswith("-"):
                 continue
         if TRUNCATE.search(" ".join(words)):
             return True
     return False
+
+
+def destructive_sql_statement_reason(command: str) -> str | None:
+    for words in shell_commands(command):
+        if is_read_only_search_command(words):
+            continue
+        segment = strip_sql_comments(" ".join(words))
+        for statement in split_sql_statements(segment):
+            if DELETE_FROM.search(statement) and not WHERE.search(statement):
+                return "DELETE FROM without a WHERE clause is blocked. Matched pattern: DELETE FROM."
+            if UPDATE_SET.search(statement) and not WHERE.search(statement):
+                return "UPDATE without a WHERE clause is blocked. Matched pattern: UPDATE SET."
+            if ALTER_TABLE_DROP.search(statement):
+                return "ALTER TABLE DROP statements are blocked. Matched pattern: ALTER TABLE DROP."
+    return None
+
+
+def is_read_only_search_command(words: list[str]) -> bool:
+    words = strip_command_wrappers(words)
+    return bool(words and command_name(words[0]) in READ_ONLY_SEARCH_COMMANDS)
 
 
 def shell_commands(command: str) -> list[list[str]]:
