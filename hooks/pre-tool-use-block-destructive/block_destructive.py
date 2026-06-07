@@ -28,7 +28,12 @@ REDIRECT_TO_BLOCK_DEVICE = re.compile(
 CHMOD_777_ROOT = re.compile(
     r"(?is)(?:^|[\s;&|])chmod\s+(?:-[\w]*R[\w]*\s+|--recursive\s+)?(?:777|666)\s+/"
 )
+WIPEFS = re.compile(r"(?is)(?:^|[\s;&|])wipefs(?:\s|$)")
+FORK_BOMB = re.compile(r"(?is):\s*\(\s*\)\s*\{.*:\s*\|.*:.*&.*\}")
 READ_ONLY_SEARCH_COMMANDS = {"ag", "grep", "rg"}
+GIT_FORCE_CONFIG_FALSE_VALUES = {"false", "0", "no", "off", "n"}
+REMOTE_SHELLS = {"bash", "sh"}
+REMOTE_DOWNLOADERS = {"curl", "wget"}
 
 
 def find_block_reason(command: str) -> str | None:
@@ -41,6 +46,9 @@ def find_block_reason(command: str) -> str | None:
     if has_destructive_git_history_command(command):
         return "Destructive Git history cleanup is blocked. Matched pattern: git reset --hard/git clean -fd."
 
+    if has_remote_shell_pipe(command):
+        return "Remote script execution is blocked. Matched pattern: curl|bash or wget|sh."
+
     if has_destructive_drop(command):
         return "Destructive DROP statement is blocked. Matched pattern: DROP TABLE/DATABASE/SCHEMA/INDEX/VIEW."
 
@@ -49,6 +57,12 @@ def find_block_reason(command: str) -> str | None:
 
     if has_block_device_write(command):
         return "Direct writes to block devices are blocked. Matched pattern: mkfs/dd/> /dev."
+
+    if WIPEFS.search(command):
+        return "Disk signature wiping is blocked. Matched pattern: wipefs."
+
+    if FORK_BOMB.search(command):
+        return "Shell fork bombs are blocked. Matched pattern: :(){ :|:& };:."
 
     if CHMOD_777_ROOT.search(command):
         return "Recursive permissive chmod on root paths is blocked. Matched pattern: chmod 777 /."
@@ -108,8 +122,38 @@ def has_forced_git_push(command: str) -> bool:
                 continue
 
             push_args = [arg.lower() for arg in git_args[push_index + 1 :]]
-            if any(arg in {"--force", "--force-with-lease", "-f"} for arg in push_args):
+            if git_force_config_enabled(git_args[:push_index]):
                 return True
+            if any(
+                arg in {"--force", "--force-with-lease", "-f"}
+                or arg.startswith("--force-with-lease=")
+                or arg.startswith("--force=")
+                or arg.startswith("+")
+                for arg in push_args
+            ):
+                return True
+
+    return False
+
+
+def git_force_config_enabled(args: list[str]) -> bool:
+    for index, arg in enumerate(args):
+        config = None
+        if arg == "-c" and index + 1 < len(args):
+            config = args[index + 1]
+        elif arg.startswith("-c") and len(arg) > 2:
+            config = arg[2:].lstrip()
+
+        if not config:
+            continue
+
+        key, has_value, value = config.partition("=")
+        if key.lower() != "push.force":
+            continue
+
+        normalized_value = value.strip().strip("'\"").lower()
+        if not has_value or normalized_value not in GIT_FORCE_CONFIG_FALSE_VALUES:
+            return True
 
     return False
 
@@ -200,6 +244,21 @@ def has_block_device_write(command: str) -> bool:
         or DD_TO_BLOCK_DEVICE.search(command)
         or REDIRECT_TO_BLOCK_DEVICE.search(command)
     )
+
+
+def has_remote_shell_pipe(command: str) -> bool:
+    for words in shell_commands(command):
+        for index, word in enumerate(words):
+            if command_name(word) not in REMOTE_DOWNLOADERS:
+                continue
+            try:
+                pipe_index = words.index("|", index + 1)
+            except ValueError:
+                continue
+            shell_words_after_pipe = strip_command_wrappers(words[pipe_index + 1 :])
+            if shell_words_after_pipe and command_name(shell_words_after_pipe[0]) in REMOTE_SHELLS:
+                return True
+    return False
 
 
 def has_destructive_drop(command: str) -> bool:
