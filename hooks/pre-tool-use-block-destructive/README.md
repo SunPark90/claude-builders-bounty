@@ -16,12 +16,15 @@ The installer copies `block_destructive.py` to `~/.claude/hooks/` and adds a Bas
 - `rm -Rf`, `rm -fR`, and `rm --recursive --force`
 - `DROP TABLE`, `DROP DATABASE`, `DROP SCHEMA`, `DROP INDEX`, `DROP VIEW`, `DROP FUNCTION`, and `DROP PROCEDURE`
 - `git push --force`, `git push -f`, and `git push --force-with-lease`
+- force-push bypasses such as `git push +main:main` and `git -c push.force=true push`
 - `git reset --hard` and destructive `git clean` variants such as `git clean -fdx`
 - `TRUNCATE`
 - `DELETE FROM` statements without a `WHERE` clause
 - `UPDATE ... SET` statements without a `WHERE` clause
 - `ALTER TABLE ... DROP`
-- direct block-device writes such as `mkfs`, `mkswap`, `dd ... of=/dev/sd*`, and redirects to `/dev/sd*`
+- direct block-device writes/wipes such as `mkfs`, `mkswap`, `wipefs`, `dd ... of=/dev/sd*`, and redirects to `/dev/sd*`
+- remote script execution through `curl|bash` or `wget|sh`
+- shell fork bombs
 - recursive permissive root-path permission changes such as `chmod -R 777 /...`
 
 Every blocked attempt is appended to `~/.claude/hooks/blocked.log` as JSON Lines with:
