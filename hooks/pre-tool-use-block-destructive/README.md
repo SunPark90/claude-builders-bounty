@@ -27,6 +27,8 @@ The installer copies `block_destructive.py` to `~/.claude/hooks/` and adds a Bas
 - shell fork bombs
 - recursive permissive root-path permission changes such as `chmod -R 777 /...`
 
+Read-only text inspection commands such as `grep`, `rg`, `cat`, `echo`, and `printf` are allowed to contain SQL-looking text unless the same command segment invokes a SQL client such as `psql`, `mysql`, or `sqlite3`.
+
 Every blocked attempt is appended to `~/.claude/hooks/blocked.log` as JSON Lines with:
 
 - timestamp

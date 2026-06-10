@@ -30,7 +30,22 @@ CHMOD_777_ROOT = re.compile(
 )
 WIPEFS = re.compile(r"(?is)(?:^|[\s;&|])wipefs(?:\s|$)")
 FORK_BOMB = re.compile(r"(?is):\s*\(\s*\)\s*\{.*:\s*\|.*:.*&.*\}")
-READ_ONLY_SEARCH_COMMANDS = {"ag", "grep", "rg"}
+READ_ONLY_TEXT_COMMANDS = {
+    "ag",
+    "awk",
+    "cat",
+    "echo",
+    "grep",
+    "head",
+    "less",
+    "more",
+    "printf",
+    "rg",
+    "sed",
+    "tail",
+    "tee",
+}
+SQL_CLIENT_COMMANDS = {"mariadb", "mysql", "mysqladmin", "psql", "sqlite3", "sqlcmd"}
 GIT_FORCE_CONFIG_FALSE_VALUES = {"false", "0", "no", "off", "n"}
 REMOTE_SHELLS = {"bash", "sh"}
 REMOTE_DOWNLOADERS = {"curl", "wget"}
@@ -299,7 +314,15 @@ def destructive_sql_statement_reason(command: str) -> str | None:
 
 def is_read_only_search_command(words: list[str]) -> bool:
     words = strip_command_wrappers(words)
-    return bool(words and command_name(words[0]) in READ_ONLY_SEARCH_COMMANDS)
+    return bool(
+        words
+        and command_name(words[0]) in READ_ONLY_TEXT_COMMANDS
+        and not has_sql_client_command(words)
+    )
+
+
+def has_sql_client_command(words: list[str]) -> bool:
+    return any(command_name(word) in SQL_CLIENT_COMMANDS for word in words)
 
 
 def shell_commands(command: str) -> list[list[str]]:
