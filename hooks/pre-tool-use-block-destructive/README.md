@@ -18,6 +18,8 @@ The installer copies `block_destructive.py` to `~/.claude/hooks/` and adds a Bas
 - `git push --force`, `git push -f`, and `git push --force-with-lease`
 - force-push bypasses such as `git push +main:main` and `git -c push.force=true push`
 - `git reset --hard` and destructive `git clean` variants such as `git clean -fdx`
+- destructive commands hidden behind shell wrappers such as `bash -c 'rm -rf build'`
+- broad `find` deletes such as `find / -delete` or `find $HOME -delete`
 - `TRUNCATE`
 - `DELETE FROM` statements without a `WHERE` clause
 - `UPDATE ... SET` statements without a `WHERE` clause

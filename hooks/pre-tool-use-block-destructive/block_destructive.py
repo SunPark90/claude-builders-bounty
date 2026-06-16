@@ -49,6 +49,8 @@ SQL_CLIENT_COMMANDS = {"mariadb", "mysql", "mysqladmin", "psql", "sqlite3", "sql
 GIT_FORCE_CONFIG_FALSE_VALUES = {"false", "0", "no", "off", "n"}
 REMOTE_SHELLS = {"bash", "sh"}
 REMOTE_DOWNLOADERS = {"curl", "wget"}
+SHELL_C_COMMANDS = {"bash", "dash", "fish", "ksh", "sh", "zsh"}
+DANGEROUS_FIND_DELETE_ROOTS = {"/", "~", "$HOME", "${HOME}"}
 
 
 def find_block_reason(command: str) -> str | None:
@@ -60,6 +62,9 @@ def find_block_reason(command: str) -> str | None:
 
     if has_destructive_git_history_command(command):
         return "Destructive Git history cleanup is blocked. Matched pattern: git reset --hard/git clean -fd."
+
+    if has_destructive_find_delete(command):
+        return "Broad find deletion is blocked. Matched pattern: find / -delete or find $HOME -delete."
 
     if has_remote_shell_pipe(command):
         return "Remote script execution is blocked. Matched pattern: curl|bash or wget|sh."
@@ -220,6 +225,24 @@ def has_destructive_git_history_command(command: str) -> bool:
     return False
 
 
+def has_destructive_find_delete(command: str) -> bool:
+    for words in shell_commands(command):
+        words = strip_command_wrappers(words)
+        if not words or command_name(words[0]) != "find" or "-delete" not in words:
+            continue
+
+        roots = []
+        for word in words[1:]:
+            if word.startswith("-"):
+                break
+            roots.append(word)
+
+        if any(root in DANGEROUS_FIND_DELETE_ROOTS for root in roots):
+            return True
+
+    return False
+
+
 def strip_command_wrappers(words: list[str]) -> list[str]:
     result = list(words)
     while result:
@@ -327,7 +350,31 @@ def has_sql_client_command(words: list[str]) -> bool:
 
 def shell_commands(command: str) -> list[list[str]]:
     segments = re.split(r"(?:&&|\|\||;|\n)", command)
-    return [shell_words(segment) for segment in segments if segment.strip()]
+    commands = []
+    for segment in segments:
+        if not segment.strip():
+            continue
+
+        words = shell_words(segment)
+        commands.append(words)
+
+        inner = shell_c_command(words)
+        if inner:
+            commands.extend(shell_commands(inner))
+
+    return commands
+
+
+def shell_c_command(words: list[str]) -> str | None:
+    words = strip_command_wrappers(words)
+    if not words or command_name(words[0]) not in SHELL_C_COMMANDS:
+        return None
+
+    for index, word in enumerate(words[1:-1], start=1):
+        if word == "-c" or (word.startswith("-") and "c" in word[1:]):
+            return words[index + 1]
+
+    return None
 
 
 def shell_words(command: str) -> list[str]:
