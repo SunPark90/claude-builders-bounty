@@ -54,6 +54,8 @@ DANGEROUS_FIND_DELETE_ROOTS = {"/", "~", "$HOME", "${HOME}"}
 
 
 def find_block_reason(command: str) -> str | None:
+    command = normalize_command(command)
+
     if has_rm_recursive_force(command):
         return "Recursive forced deletion is blocked. Matched pattern: rm -rf."
 
@@ -92,6 +94,13 @@ def find_block_reason(command: str) -> str | None:
         return sql_reason
 
     return None
+
+
+def normalize_command(command: str) -> str:
+    if "\x00" not in command:
+        return command
+
+    return command.replace("\x00", " ") + "\n" + command.replace("\x00", "")
 
 
 def has_rm_recursive_force(command: str) -> bool:

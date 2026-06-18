@@ -114,6 +114,11 @@ class DetectionTests(unittest.TestCase):
         self.assertIn("chmod 777", find_block_reason("chmod --recursive 666 /tmp/shared"))
         self.assertIsNone(find_block_reason("chmod 755 scripts/deploy.sh"))
 
+    def test_blocks_null_byte_evasion(self):
+        self.assertIn("rm -rf", find_block_reason("rm\x00-rf /tmp/build"))
+        self.assertIn("git push --force", find_block_reason("git push origin main --\x00force"))
+        self.assertIn("DROP TABLE", find_block_reason("DROP\x00TABLE users"))
+
 
 class HookIntegrationTests(unittest.TestCase):
     def run_hook(self, payload, home):
