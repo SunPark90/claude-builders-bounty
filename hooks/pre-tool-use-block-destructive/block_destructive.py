@@ -50,6 +50,18 @@ GIT_FORCE_CONFIG_FALSE_VALUES = {"false", "0", "no", "off", "n"}
 REMOTE_SHELLS = {"bash", "sh"}
 REMOTE_DOWNLOADERS = {"curl", "wget"}
 SHELL_C_COMMANDS = {"bash", "dash", "fish", "ksh", "sh", "zsh"}
+CONTAINER_EXEC_COMMANDS = {"docker", "kubectl", "nerdctl", "podman"}
+CONTAINER_EXEC_OPTIONS_WITH_VALUES = {
+    "-c",
+    "-n",
+    "-u",
+    "-w",
+    "--container",
+    "--context",
+    "--namespace",
+    "--user",
+    "--workdir",
+}
 DANGEROUS_FIND_DELETE_ROOTS = {"/", "~", "$HOME", "${HOME}"}
 
 
@@ -265,6 +277,10 @@ def strip_command_wrappers(words: list[str]) -> list[str]:
         if head == "env":
             result = strip_env_prefix(result[1:])
             continue
+        container_inner = container_exec_inner_command(result)
+        if container_inner is not None:
+            result = container_inner
+            continue
         break
     return result
 
@@ -282,6 +298,44 @@ def strip_env_prefix(words: list[str]) -> list[str]:
             result = result[1:]
             continue
         return result
+    return result
+
+
+def container_exec_inner_command(words: list[str]) -> list[str] | None:
+    if not words or command_name(words[0]) not in CONTAINER_EXEC_COMMANDS:
+        return None
+
+    if command_name(words[0]) == "docker" and len(words) > 2 and words[1] == "compose":
+        if words[2] != "exec":
+            return None
+        tail = words[3:]
+    elif len(words) > 1 and words[1] == "exec":
+        tail = words[2:]
+    else:
+        return None
+
+    tail = strip_container_exec_options(tail)
+    if not tail:
+        return None
+
+    inner = tail[1:]
+    if inner and inner[0] == "--":
+        inner = inner[1:]
+    return inner or None
+
+
+def strip_container_exec_options(words: list[str]) -> list[str]:
+    result = list(words)
+    while result:
+        option = result[0]
+        if option == "--":
+            return result[1:]
+        if not option.startswith("-") or option == "-":
+            return result
+        if option.split("=", 1)[0] in CONTAINER_EXEC_OPTIONS_WITH_VALUES:
+            result = result[2:] if "=" not in option and len(result) > 1 else result[1:]
+            continue
+        result = result[1:]
     return result
 
 

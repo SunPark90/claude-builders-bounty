@@ -119,6 +119,12 @@ class DetectionTests(unittest.TestCase):
         self.assertIn("git push --force", find_block_reason("git push origin main --\x00force"))
         self.assertIn("DROP TABLE", find_block_reason("DROP\x00TABLE users"))
 
+    def test_blocks_container_exec_inner_commands(self):
+        self.assertIn("rm -rf", find_block_reason("docker exec app sh -c 'rm -rf /tmp/build'"))
+        self.assertIn("git push --force", find_block_reason("kubectl exec pod -- sh -c 'git push --force origin main'"))
+        self.assertIn("DROP TABLE", find_block_reason("docker compose exec app psql -c 'DROP TABLE users'"))
+        self.assertIsNone(find_block_reason("echo \"docker exec app sh -c 'rm -rf /tmp/build'\""))
+
 
 class HookIntegrationTests(unittest.TestCase):
     def run_hook(self, payload, home):
