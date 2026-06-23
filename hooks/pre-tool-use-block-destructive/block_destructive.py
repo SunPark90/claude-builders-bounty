@@ -50,6 +50,7 @@ GIT_FORCE_CONFIG_FALSE_VALUES = {"false", "0", "no", "off", "n"}
 REMOTE_SHELLS = {"bash", "sh"}
 REMOTE_DOWNLOADERS = {"curl", "wget"}
 SHELL_C_COMMANDS = {"bash", "dash", "fish", "ksh", "sh", "zsh"}
+EVASION_SEPARATORS = "\x00\u115f\u1160\u2800\u3164\uffa0"
 CONTAINER_EXEC_COMMANDS = {"docker", "kubectl", "nerdctl", "podman"}
 CONTAINER_EXEC_OPTIONS_WITH_VALUES = {
     "-c",
@@ -109,30 +110,31 @@ def find_block_reason(command: str) -> str | None:
 
 
 def normalize_command(command: str) -> str:
-    if "\x00" not in command:
+    if not any(char in command for char in EVASION_SEPARATORS):
         return command
 
-    return command.replace("\x00", " ") + "\n" + command.replace("\x00", "")
+    space_translation = str.maketrans({char: " " for char in EVASION_SEPARATORS})
+    remove_translation = str.maketrans("", "", EVASION_SEPARATORS)
+    return command.translate(space_translation) + "\n" + command.translate(remove_translation)
 
 
 def has_rm_recursive_force(command: str) -> bool:
     for words in shell_commands(command):
-        words = strip_command_wrappers(words)
-        for index, word in enumerate(words):
-            if command_name(word) != "rm":
+        for words in executable_command_positions(words):
+            if not words or command_name(words[0]) != "rm":
                 continue
 
             has_recursive = False
             has_force = False
-            for option in words[index + 1 :]:
+            for option in words[1:]:
                 if option == "--":
                     continue
                 if not option.startswith("-") or option == "-":
                     break
 
-                if option == "--recursive":
+                if option == "--recursive" or option.startswith("--recursive="):
                     has_recursive = True
-                elif option == "--force":
+                elif option == "--force" or option.startswith("--force="):
                     has_force = True
                 elif option.startswith("--"):
                     continue
@@ -145,6 +147,19 @@ def has_rm_recursive_force(command: str) -> bool:
                     return True
 
     return False
+
+
+def executable_command_positions(words: list[str]) -> list[list[str]]:
+    commands = []
+    segment = []
+    for word in words:
+        if word == "|":
+            commands.append(strip_command_wrappers(segment))
+            segment = []
+            continue
+        segment.append(word)
+    commands.append(strip_command_wrappers(segment))
+    return [command for command in commands if command]
 
 
 def has_forced_git_push(command: str) -> bool:

@@ -45,7 +45,9 @@ class DetectionTests(unittest.TestCase):
         self.assertTrue(has_rm_recursive_force("sudo rm -rf build"))
         self.assertTrue(has_rm_recursive_force("command rm -rf build"))
         self.assertTrue(has_rm_recursive_force("env PATH=/usr/bin rm -rf build"))
+        self.assertTrue(has_rm_recursive_force("echo ok | rm -rf build"))
         self.assertFalse(has_rm_recursive_force("echo 'rm -rf docs'"))
+        self.assertFalse(has_rm_recursive_force("echo rm -rf docs"))
 
     def test_blocks_sql_destructive_patterns(self):
         self.assertIn("DROP TABLE", find_block_reason("psql -c 'DROP TABLE users'"))
@@ -119,11 +121,24 @@ class DetectionTests(unittest.TestCase):
         self.assertIn("git push --force", find_block_reason("git push origin main --\x00force"))
         self.assertIn("DROP TABLE", find_block_reason("DROP\x00TABLE users"))
 
+    def test_blocks_unicode_separator_evasion(self):
+        self.assertIn("rm -rf", find_block_reason("rm\u3164-rf /tmp/build"))
+        self.assertIn("rm -rf", find_block_reason("rm\u2800-rf /tmp/build"))
+        self.assertIn("DROP TABLE", find_block_reason("DR\u3164OP TABLE users"))
+        self.assertIn("git push --force", find_block_reason("git push origin main --\u3164force"))
+
+    def test_blocks_rm_long_options_with_values(self):
+        self.assertIn("rm -rf", find_block_reason("rm --recursive=always --force=always /tmp/build"))
+
     def test_blocks_container_exec_inner_commands(self):
         self.assertIn("rm -rf", find_block_reason("docker exec app sh -c 'rm -rf /tmp/build'"))
         self.assertIn("git push --force", find_block_reason("kubectl exec pod -- sh -c 'git push --force origin main'"))
         self.assertIn("DROP TABLE", find_block_reason("docker compose exec app psql -c 'DROP TABLE users'"))
         self.assertIsNone(find_block_reason("echo \"docker exec app sh -c 'rm -rf /tmp/build'\""))
+
+    def test_allows_display_only_rm_text_inside_shell_wrapper(self):
+        self.assertIsNone(find_block_reason("bash -lc 'echo rm -rf /'"))
+        self.assertIn("rm -rf", find_block_reason("bash -c 'echo safe; rm -rf /'"))
 
 
 class HookIntegrationTests(unittest.TestCase):
