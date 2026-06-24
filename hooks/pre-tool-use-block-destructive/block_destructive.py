@@ -51,6 +51,28 @@ REMOTE_SHELLS = {"bash", "sh"}
 REMOTE_DOWNLOADERS = {"curl", "wget"}
 SHELL_C_COMMANDS = {"bash", "dash", "fish", "ksh", "sh", "zsh"}
 EVASION_SEPARATORS = "\x00\u115f\u1160\u2800\u3164\uffa0"
+SUDO_OPTIONS_WITH_VALUES = {
+    "-C",
+    "-D",
+    "-g",
+    "-h",
+    "-p",
+    "-u",
+    "--chdir",
+    "--close-from",
+    "--group",
+    "--host",
+    "--prompt",
+    "--user",
+}
+ENV_OPTIONS_WITH_VALUES = {
+    "-C",
+    "-S",
+    "-u",
+    "--chdir",
+    "--split-string",
+    "--unset",
+}
 CONTAINER_EXEC_COMMANDS = {"docker", "kubectl", "nerdctl", "podman"}
 CONTAINER_EXEC_OPTIONS_WITH_VALUES = {
     "-c",
@@ -284,10 +306,10 @@ def strip_command_wrappers(words: list[str]) -> list[str]:
     while result:
         head = command_name(result[0])
         if head == "sudo":
-            result = result[1:]
+            result = strip_option_prefix(result[1:], SUDO_OPTIONS_WITH_VALUES)
             continue
         if head == "command":
-            result = result[1:]
+            result = strip_option_prefix(result[1:], set())
             continue
         if head == "env":
             result = strip_env_prefix(result[1:])
@@ -301,18 +323,35 @@ def strip_command_wrappers(words: list[str]) -> list[str]:
 
 
 def strip_env_prefix(words: list[str]) -> list[str]:
+    result = strip_option_prefix(words, ENV_OPTIONS_WITH_VALUES)
+    while result:
+        token = result[0]
+        if re.match(r"^[A-Za-z_][A-Za-z0-9_]*=", token):
+            result = result[1:]
+            continue
+        return result
+    return result
+
+
+def strip_option_prefix(words: list[str], options_with_values: set[str]) -> list[str]:
     result = list(words)
     while result:
         token = result[0]
         if token == "--":
             return result[1:]
-        if token.startswith("-"):
+        if not token.startswith("-") or token == "-":
+            return result
+
+        option_name, has_inline_value, _ = token.partition("=")
+        if option_name in options_with_values:
+            result = result[1:] if has_inline_value else result[2:]
+            continue
+
+        if len(token) > 2 and token[:2] in options_with_values:
             result = result[1:]
             continue
-        if re.match(r"^[A-Za-z_][A-Za-z0-9_]*=", token):
-            result = result[1:]
-            continue
-        return result
+
+        result = result[1:]
     return result
 
 
