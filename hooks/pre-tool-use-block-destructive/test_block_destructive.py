@@ -49,10 +49,17 @@ class DetectionTests(unittest.TestCase):
         self.assertTrue(has_rm_recursive_force("sudo -u root -H rm -rf build"))
         self.assertTrue(has_rm_recursive_force("command -- rm -rf build"))
         self.assertTrue(has_rm_recursive_force("env -u DEBUG PATH=/usr/bin rm -rf build"))
+        self.assertTrue(has_rm_recursive_force("doas rm -rf build"))
+        self.assertTrue(has_rm_recursive_force("doas -u root rm -rf build"))
+        self.assertTrue(has_rm_recursive_force("pkexec rm -rf build"))
+        self.assertTrue(has_rm_recursive_force("runuser -u root -- rm -rf build"))
         self.assertTrue(has_rm_recursive_force("echo ok | rm -rf build"))
         self.assertFalse(has_rm_recursive_force("echo 'rm -rf docs'"))
         self.assertFalse(has_rm_recursive_force("echo rm -rf docs"))
         self.assertFalse(has_rm_recursive_force("sudo -u root echo rm -rf docs"))
+        self.assertFalse(has_rm_recursive_force("doas echo rm -rf docs"))
+        self.assertFalse(has_rm_recursive_force("pkexec echo rm -rf docs"))
+        self.assertFalse(has_rm_recursive_force("runuser -u root -- echo rm -rf docs"))
 
     def test_blocks_sql_destructive_patterns(self):
         self.assertIn("DROP TABLE", find_block_reason("psql -c 'DROP TABLE users'"))

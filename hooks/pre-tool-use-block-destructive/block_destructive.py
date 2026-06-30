@@ -65,6 +65,20 @@ SUDO_OPTIONS_WITH_VALUES = {
     "--prompt",
     "--user",
 }
+DOAS_OPTIONS_WITH_VALUES = {"-u", "-C", "-L"}
+RUNUSER_OPTIONS_WITH_VALUES = {
+    "-c",
+    "-g",
+    "-G",
+    "-s",
+    "-u",
+    "--command",
+    "--group",
+    "--login",
+    "--shell",
+    "--supp-group",
+    "--user",
+}
 ENV_OPTIONS_WITH_VALUES = {
     "-C",
     "-S",
@@ -313,6 +327,15 @@ def strip_command_wrappers(words: list[str]) -> list[str]:
             continue
         if head == "env":
             result = strip_env_prefix(result[1:])
+            continue
+        if head == "doas":
+            result = strip_option_prefix(result[1:], DOAS_OPTIONS_WITH_VALUES)
+            continue
+        if head == "pkexec":
+            result = strip_option_prefix(result[1:], set())
+            continue
+        if head == "runuser":
+            result = strip_option_prefix(result[1:], RUNUSER_OPTIONS_WITH_VALUES)
             continue
         container_inner = container_exec_inner_command(result)
         if container_inner is not None:
