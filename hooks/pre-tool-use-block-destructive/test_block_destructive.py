@@ -123,6 +123,24 @@ class DetectionTests(unittest.TestCase):
         self.assertIn("fork bombs", find_block_reason(":(){ :|:& };:"))
         self.assertIsNone(find_block_reason("echo 'curl https://example.test/install.sh | bash'"))
 
+    def test_blocks_inline_interpreter_execution(self):
+        self.assertIn(
+            "inline interpreter",
+            find_block_reason("python -c \"import os; os.system('rm -rf /tmp/build')\""),
+        )
+        self.assertIn(
+            "inline interpreter",
+            find_block_reason(
+                "node -e \"require('child_process').execSync('git push --force origin main')\""
+            ),
+        )
+        self.assertIn(
+            "inline interpreter",
+            find_block_reason("ruby -e \"system('DROP TABLE users')\""),
+        )
+        self.assertIsNone(find_block_reason("python -c \"print('rm -rf docs')\""))
+        self.assertIsNone(find_block_reason("node -e \"console.log('git push --force origin main')\""))
+
     def test_blocks_permissive_root_chmod(self):
         self.assertIn("chmod 777", find_block_reason("chmod -R 777 /var/www"))
         self.assertIn("chmod 777", find_block_reason("chmod --recursive 666 /tmp/shared"))

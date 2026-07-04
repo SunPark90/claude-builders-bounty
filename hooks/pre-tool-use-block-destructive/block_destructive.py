@@ -50,6 +50,11 @@ GIT_FORCE_CONFIG_FALSE_VALUES = {"false", "0", "no", "off", "n"}
 REMOTE_SHELLS = {"bash", "sh"}
 REMOTE_DOWNLOADERS = {"curl", "wget"}
 SHELL_C_COMMANDS = {"bash", "dash", "fish", "ksh", "sh", "zsh"}
+INTERPRETER_INLINE_COMMANDS = {"node", "perl", "python", "python3", "ruby"}
+INTERPRETER_EXECUTION_HINT = re.compile(
+    r"(?is)\b(?:child_process|exec(?:file|sync|vp|ve|le)?|os\.system|popen|spawn|subprocess|system)\b"
+)
+STRING_LITERAL = re.compile(r"""(?sx)(['"])((?:\\.|(?!\1).)*)\1""")
 EVASION_SEPARATORS = "\x00\u115f\u1160\u2800\u3164\uffa0"
 SUDO_OPTIONS_WITH_VALUES = {
     "-C",
@@ -119,6 +124,9 @@ def find_block_reason(command: str) -> str | None:
 
     if has_remote_shell_pipe(command):
         return "Remote script execution is blocked. Matched pattern: curl|bash or wget|sh."
+
+    if has_destructive_interpreter_inline(command):
+        return "Destructive inline interpreter execution is blocked. Matched pattern: python/node/ruby/perl -c/-e."
 
     if has_destructive_drop(command):
         return "Destructive DROP statement is blocked. Matched pattern: DROP TABLE/DATABASE/SCHEMA/INDEX/VIEW."
@@ -439,6 +447,38 @@ def has_remote_shell_pipe(command: str) -> bool:
     return False
 
 
+def has_destructive_interpreter_inline(command: str) -> bool:
+    for words in shell_commands(command):
+        code = interpreter_inline_code(words)
+        if not code or INTERPRETER_EXECUTION_HINT.search(code) is None:
+            continue
+        for literal in command_literals(code):
+            if find_block_reason(literal):
+                return True
+    return False
+
+
+def interpreter_inline_code(words: list[str]) -> str | None:
+    words = strip_command_wrappers(words)
+    if not words or command_name(words[0]) not in INTERPRETER_INLINE_COMMANDS:
+        return None
+
+    for index, word in enumerate(words[1:-1], start=1):
+        if word in {"-c", "-e"}:
+            return words[index + 1]
+        if word.startswith("-") and len(word) > 2 and any(flag in word[1:] for flag in ("c", "e")):
+            return words[index + 1]
+
+    return None
+
+
+def command_literals(code: str) -> list[str]:
+    return [
+        bytes(match.group(2), "utf-8").decode("unicode_escape")
+        for match in STRING_LITERAL.finditer(code)
+    ]
+
+
 def has_destructive_drop(command: str) -> bool:
     for words in shell_commands(command):
         if is_read_only_search_command(words):
@@ -489,9 +529,8 @@ def has_sql_client_command(words: list[str]) -> bool:
 
 
 def shell_commands(command: str) -> list[list[str]]:
-    segments = re.split(r"(?:&&|\|\||;|\n)", command)
     commands = []
-    for segment in segments:
+    for segment in split_shell_segments(command):
         if not segment.strip():
             continue
 
@@ -503,6 +542,58 @@ def shell_commands(command: str) -> list[list[str]]:
             commands.extend(shell_commands(inner))
 
     return commands
+
+
+def split_shell_segments(command: str) -> list[str]:
+    segments = []
+    current = []
+    in_single = False
+    in_double = False
+    escaped = False
+    index = 0
+
+    def flush() -> None:
+        segment = "".join(current).strip()
+        if segment:
+            segments.append(segment)
+        current.clear()
+
+    while index < len(command):
+        char = command[index]
+        if escaped:
+            current.append(char)
+            escaped = False
+            index += 1
+            continue
+        if char == "\\" and in_double:
+            current.append(char)
+            escaped = True
+            index += 1
+            continue
+        if char == "'" and not in_double:
+            in_single = not in_single
+            current.append(char)
+            index += 1
+            continue
+        if char == '"' and not in_single:
+            in_double = not in_double
+            current.append(char)
+            index += 1
+            continue
+        if not in_single and not in_double:
+            if command.startswith("&&", index) or command.startswith("||", index):
+                flush()
+                index += 2
+                continue
+            if char in {";", "\n"}:
+                flush()
+                index += 1
+                continue
+        current.append(char)
+        index += 1
+
+    flush()
+    return segments
 
 
 def shell_c_command(words: list[str]) -> str | None:
