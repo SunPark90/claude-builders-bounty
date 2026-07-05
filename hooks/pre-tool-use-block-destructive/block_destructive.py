@@ -50,6 +50,9 @@ GIT_FORCE_CONFIG_FALSE_VALUES = {"false", "0", "no", "off", "n"}
 REMOTE_SHELLS = {"bash", "sh"}
 REMOTE_DOWNLOADERS = {"curl", "wget"}
 SHELL_C_COMMANDS = {"bash", "dash", "fish", "ksh", "sh", "zsh"}
+SHELL_DOLLAR_C_COMMAND = re.compile(
+    r"""(?is)\b(?:bash|dash|fish|ksh|sh|zsh)\b(?:\s+(?:--[\w-]+(?:=\S+)?|-[A-Za-z]+))*\s+-[A-Za-z]*c\b\s+\$(?P<quote>['"])(?P<body>(?:\\.|(?!\1).)*)\1"""
+)
 INTERPRETER_INLINE_COMMANDS = {"node", "perl", "python", "python3", "ruby"}
 INTERPRETER_EXECUTION_HINT = re.compile(
     r"(?is)\b(?:child_process|exec(?:file|sync|vp|ve|le)?|os\.system|popen|spawn|subprocess|system)\b"
@@ -537,7 +540,7 @@ def shell_commands(command: str) -> list[list[str]]:
         words = shell_words(segment)
         commands.append(words)
 
-        inner = shell_c_command(words)
+        inner = shell_dollar_c_command(segment) or shell_c_command(words)
         if inner:
             commands.extend(shell_commands(inner))
 
@@ -608,6 +611,13 @@ def shell_c_command(words: list[str]) -> str | None:
     return None
 
 
+def shell_dollar_c_command(command: str) -> str | None:
+    match = SHELL_DOLLAR_C_COMMAND.search(command)
+    if not match:
+        return None
+    return decode_backslash_escapes(match.group("body"))
+
+
 def shell_words(command: str) -> list[str]:
     try:
         return shlex.split(command, posix=True)
@@ -617,6 +627,10 @@ def shell_words(command: str) -> list[str]:
 
 def command_name(word: str) -> str:
     return Path(word).name.lower()
+
+
+def decode_backslash_escapes(text: str) -> str:
+    return bytes(text, "utf-8").decode("unicode_escape")
 
 
 def split_sql_statements(command: str) -> list[str]:

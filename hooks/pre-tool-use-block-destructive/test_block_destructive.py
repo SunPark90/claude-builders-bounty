@@ -170,6 +170,15 @@ class DetectionTests(unittest.TestCase):
         self.assertIsNone(find_block_reason("bash -lc 'echo rm -rf /'"))
         self.assertIn("rm -rf", find_block_reason("bash -c 'echo safe; rm -rf /'"))
 
+    def test_blocks_bash_dollar_quoted_shell_wrapper(self):
+        self.assertIn("rm -rf", find_block_reason("bash -c $'rm -rf /tmp/build'"))
+        self.assertIn(
+            "git push --force",
+            find_block_reason("sudo bash -lc $'git push --force origin main'"),
+        )
+        self.assertIn("rm -rf", find_block_reason('bash -c $"rm -rf /tmp/build"'))
+        self.assertIsNone(find_block_reason("bash -c $'echo rm -rf docs'"))
+
 
 class HookIntegrationTests(unittest.TestCase):
     def run_hook(self, payload, home):
