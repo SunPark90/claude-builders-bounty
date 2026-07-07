@@ -346,13 +346,44 @@ def strip_command_wrappers(words: list[str]) -> list[str]:
             result = strip_option_prefix(result[1:], set())
             continue
         if head == "runuser":
-            result = strip_option_prefix(result[1:], RUNUSER_OPTIONS_WITH_VALUES)
+            result = strip_runuser_prefix(result[1:])
             continue
         container_inner = container_exec_inner_command(result)
         if container_inner is not None:
             result = container_inner
             continue
         break
+    return result
+
+
+def strip_runuser_prefix(words: list[str]) -> list[str]:
+    result = list(words)
+    while result:
+        token = result[0]
+        if token == "--":
+            return result[1:]
+
+        option_name, has_inline_value, inline_value = token.partition("=")
+        if option_name in {"-c", "--command"}:
+            if has_inline_value:
+                return shell_words(inline_value)
+            if len(result) > 1:
+                return shell_words(result[1])
+            return []
+
+        if option_name in RUNUSER_OPTIONS_WITH_VALUES:
+            result = result[1:] if has_inline_value else result[2:]
+            continue
+
+        if len(token) > 2 and token[:2] in RUNUSER_OPTIONS_WITH_VALUES:
+            result = result[1:]
+            continue
+
+        if token.startswith("-") and token != "-":
+            result = result[1:]
+            continue
+
+        return result
     return result
 
 
